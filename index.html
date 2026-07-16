@@ -851,14 +851,32 @@
   }
 
   function linkChipHtml(label, url) {
-    const isTaskLink = /task\s*link/i.test(label);
+    // Match "Task Link", "Task_Link", "Task-Link" etc, not just a literal space.
+    const isTaskLink = /task[\s_-]*link/i.test(label);
     const cls = isTaskLink ? "link-chip task-link-chip" : "link-chip";
     const icon = isTaskLink ? "✓ " : "";
-    return `<a class="${cls}" href="${escapeAttr(url)}" target="_blank" rel="noopener">${icon}${escapeHtml(label)} ↗</a>`;
+    return `<a class="${cls}" href="${escapeAttr(normalizeLinkHref(url))}" target="_blank" rel="noopener">${icon}${escapeHtml(label)} ↗</a>`;
   }
 
   function isLinkValue(v) {
-    return typeof v === "string" && /^https?:\/\//i.test(v.trim());
+    if (typeof v !== "string") return false;
+    const s = v.trim();
+    if (!s) return false;
+    if (/^https?:\/\//i.test(s)) return true;
+    // Also treat protocol-less URLs as links (common when pasted from
+    // Sheets without "https://", e.g. "docs.google.com/forms/..." or
+    // "www.example.com/xyz") — these were previously silently ignored,
+    // which is why the Task Link / Complete Task button showed up for
+    // some rows but not others depending only on whether that particular
+    // cell happened to include "https://".
+    return /^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/[^\s]*)?$/i.test(s) && s.indexOf(" ") === -1;
+  }
+
+  // Ensures a link value always has a protocol before it's used as an
+  // href, since isLinkValue() now also accepts protocol-less URLs.
+  function normalizeLinkHref(v) {
+    const s = String(v || "").trim();
+    return /^https?:\/\//i.test(s) ? s : "https://" + s;
   }
 
   // Delay is a duration like "20:44:29" (positive = overdue by that much)
@@ -903,15 +921,15 @@
   }
 
   function findCompleteLink(fields, headerDefs) {
-    // Prefer a column literally called "Task Link" / "Task link"
+    // Prefer a column literally called "Task Link" / "Task_Link" / "Task-Link"
     const named = headerDefs.find(function(h) {
-      return /task\s*link/i.test(h.label) && isLinkValue(fields[h.key]);
+      return /task[\s_-]*link/i.test(h.label) && isLinkValue(fields[h.key]);
     });
-    if (named) return fields[named.key];
+    if (named) return normalizeLinkHref(fields[named.key]);
 
     // Otherwise, first link-valued field
     const anyLink = headerDefs.find(function(h) { return isLinkValue(fields[h.key]); });
-    return anyLink ? fields[anyLink.key] : null;
+    return anyLink ? normalizeLinkHref(fields[anyLink.key]) : null;
   }
 
   /* ---------------- DATA ---------------- */
@@ -933,13 +951,25 @@
   }
 
   function processHeaders(key) {
-    if (meta[key] && meta[key].headers && meta[key].headers.length) {
-      return meta[key].headers; // [{key, label}, ...] in sheet column order
-    }
-    // Fallback: derive from the keys of any task in this process
     const tasks = rawTasks[key] || {};
-    const firstTask = Object.values(tasks)[0] || {};
-    return Object.keys(firstTask).map(function(k) { return { key: k, label: k.replace(/_/g, " ") }; });
+    const seen = [];
+    const seenSet = {};
+
+    if (meta[key] && meta[key].headers && meta[key].headers.length) {
+      meta[key].headers.forEach(function(h) { seenSet[h.key] = true; seen.push(h); });
+    }
+
+    // Also pick up any column that exists on actual task rows but is
+    // missing from meta.headers (meta can go stale if it was generated
+    // before a column, e.g. "Task Link", was added to the sheet) —
+    // without this, that column silently never renders for any task.
+    Object.values(tasks).forEach(function(f) {
+      Object.keys(f || {}).forEach(function(k) {
+        if (!seenSet[k]) { seenSet[k] = true; seen.push({ key: k, label: k.replace(/_/g, " ") }); }
+      });
+    });
+
+    return seen;
   }
 
   async function fetchData() {
@@ -1338,7 +1368,7 @@
         }
 
         if (isLinkValue(val)) {
-          return `<td><a class="link-chip" href="${escapeAttr(val)}" target="_blank" rel="noopener">${escapeHtml(h.label)} ↗</a></td>`;
+          return `<td><a class="link-chip" href="${escapeAttr(normalizeLinkHref(val))}" target="_blank" rel="noopener">${escapeHtml(h.label)} ↗</a></td>`;
         }
 
         const isIdLike = h.key === "ID" || h.key === "Site" || h.key === "Site_Code" || h.key === "Planned";
