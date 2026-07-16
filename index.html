@@ -563,6 +563,22 @@
 
   .chart-box { position: relative; height: 380px; margin-top: 8px; }
 
+  .task-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+  .task-filters select, .task-filters input[type="date"] {
+    padding: 10px 12px; border: 1px solid var(--line-strong);
+    border-radius: 8px; font-size: 13px; font-family: var(--font-body);
+    background: #fff; outline: none;
+  }
+
+  .task-filters select:focus, .task-filters input[type="date"]:focus {
+    border-color: var(--amber); box-shadow: 0 0 0 3px rgba(217,119,6,0.14);
+  }
+
+  .task-filters select { min-width: 160px; }
+
+  #bulkWhatsAppBtn { white-space: nowrap; }
+
   .analytics-filters { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
   .analytics-filters .field { min-width: 220px; }
 
@@ -649,6 +665,13 @@
       <div class="search-box">
         <input type="text" id="searchInput" placeholder="Search everything in this view…" oninput="renderTable()">
       </div>
+      <div class="task-filters" id="taskFiltersRow">
+        <select id="taskDoerFilter" onchange="onTaskFilterChange()"><option value="">All Doers</option></select>
+        <input type="date" id="taskDateFrom" onchange="onTaskFilterChange()" title="Planned from date">
+        <input type="date" id="taskDateTo" onchange="onTaskFilterChange()" title="Planned to date">
+        <button class="btn" onclick="clearTaskFilters()">Clear Filters</button>
+      </div>
+      <button class="whatsapp-btn" id="bulkWhatsAppBtn" style="display:none;" onclick="sendBulkWhatsAppForFilteredDoer()">WhatsApp — All Pending</button>
       <button class="btn" onclick="fetchData()">Refresh Now</button>
     </div>
 
@@ -720,6 +743,9 @@
   let quickLinks = {};   // { linkId: { label, url } }
   let taskExtras = {};   // { processKey: { taskId: { buttons: [{label,url}] } } }
   let activeProcess = "All"; // "All" | processKey | "__doerContacts__" | "__quickLinks__"
+  let taskFilterDoer = "";     // selected Doer in the task-list filter row
+  let taskFilterDateFrom = ""; // "yyyy-MM-dd" or ""
+  let taskFilterDateTo = "";   // "yyyy-MM-dd" or ""
   let currentUser = null; // { username, doerName, role }
   let expandedCards = {}; // { cardKey: true } — persists across the 15s auto-refresh
   let pollTimer = null;
@@ -978,6 +1004,7 @@
     }
 
     tabsRow.innerHTML = html;
+    populateTaskDoerFilterSelect();
   }
 
   function setProcess(p) {
@@ -1004,6 +1031,136 @@
   function matchesSearch(fields, search) {
     if (!search) return true;
     return Object.values(fields).join(" ").toLowerCase().includes(search);
+  }
+
+  // Parses the "Planned" field into a real Date, whatever reasonable format
+  // it was written in (dd/MM/yyyy, dd/MM/yyyy HH:mm:ss, ISO, etc). Returns
+  // null if it can't be parsed at all.
+  function parsePlannedDate(v) {
+    const s = String(v || "").trim();
+    if (!s) return null;
+
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m) {
+      const day = parseInt(m[1], 10), month = parseInt(m[2], 10) - 1, year = parseInt(m[3], 10);
+      const hh = m[4] ? parseInt(m[4], 10) : 0, mm = m[5] ? parseInt(m[5], 10) : 0, ss = m[6] ? parseInt(m[6], 10) : 0;
+      const d = new Date(year, month, day, hh, mm, ss);
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    const d2 = new Date(s);
+    return isNaN(d2.getTime()) ? null : d2;
+  }
+
+  // Applies the toolbar's Doer + Date-range filter (matched against the
+  // "Planned" timestamp field) to a task's fields.
+  function matchesTaskFilters(fields) {
+    if (taskFilterDoer) {
+      const doer = String(fields.Doer || "").trim().toLowerCase();
+      if (doer !== taskFilterDoer.trim().toLowerCase()) return false;
+    }
+
+    if (taskFilterDateFrom || taskFilterDateTo) {
+      const d = parsePlannedDate(fields.Planned);
+      if (!d) return false; // date filter active but this row has no usable date — exclude it
+      if (taskFilterDateFrom && d < new Date(taskFilterDateFrom + "T00:00:00")) return false;
+      if (taskFilterDateTo && d > new Date(taskFilterDateTo + "T23:59:59")) return false;
+    }
+
+    return true;
+  }
+
+  function populateTaskDoerFilterSelect() {
+    const sel = document.getElementById("taskDoerFilter");
+    if (!sel) return;
+    const names = getAllDoerNames();
+    sel.innerHTML = '<option value="">All Doers</option>' + names.map(function(d) {
+      return `<option value="${escapeAttr(d)}" ${d === taskFilterDoer ? "selected" : ""}>${escapeHtml(d)}</option>`;
+    }).join("");
+  }
+
+  function onTaskFilterChange() {
+    taskFilterDoer = document.getElementById("taskDoerFilter").value;
+    taskFilterDateFrom = document.getElementById("taskDateFrom").value;
+    taskFilterDateTo = document.getElementById("taskDateTo").value;
+    renderTable();
+  }
+
+  function clearTaskFilters() {
+    taskFilterDoer = "";
+    taskFilterDateFrom = "";
+    taskFilterDateTo = "";
+    const doerSel = document.getElementById("taskDoerFilter");
+    const fromInput = document.getElementById("taskDateFrom");
+    const toInput = document.getElementById("taskDateTo");
+    if (doerSel) doerSel.value = "";
+    if (fromInput) fromInput.value = "";
+    if (toInput) toInput.value = "";
+    renderTable();
+  }
+
+  // Every pending task for a given Doer, across ALL processes, respecting
+  // the active date-range filter (if any) — used by the bulk WhatsApp send.
+  function getFilteredTasksForDoer(doerName) {
+    const mine = String(doerName || "").trim().toLowerCase();
+    const list = [];
+    Object.keys(rawTasks).forEach(function(processKey) {
+      Object.keys(rawTasks[processKey] || {}).forEach(function(taskId) {
+        const f = rawTasks[processKey][taskId] || {};
+        if (String(f.Doer || "").trim().toLowerCase() !== mine) return;
+        if (taskFilterDateFrom || taskFilterDateTo) {
+          const d = parsePlannedDate(f.Planned);
+          if (!d) return;
+          if (taskFilterDateFrom && d < new Date(taskFilterDateFrom + "T00:00:00")) return;
+          if (taskFilterDateTo && d > new Date(taskFilterDateTo + "T23:59:59")) return;
+        }
+        list.push({ process: processKey, id: f.ID || taskId, step: f.Step || "" });
+      });
+    });
+    return list;
+  }
+
+  function updateBulkWhatsAppButton() {
+    const btn = document.getElementById("bulkWhatsAppBtn");
+    if (!btn) return;
+    const isAdmin = currentUser && currentUser.role === "admin";
+    if (!isAdmin || !taskFilterDoer) {
+      btn.style.display = "none";
+      return;
+    }
+    const tasks = getFilteredTasksForDoer(taskFilterDoer);
+    btn.style.display = "inline-block";
+    btn.disabled = tasks.length === 0;
+    btn.textContent = "WhatsApp — All Pending (" + tasks.length + ")";
+  }
+
+  // Sends ONE WhatsApp message to the currently doer-filtered Doer,
+  // listing every one of their pending tasks (respecting the date filter
+  // if one is set) in a single message.
+  function sendBulkWhatsAppForFilteredDoer() {
+    if (!taskFilterDoer) return;
+    const key = sanitizeKeyClient(taskFilterDoer.toLowerCase());
+    const contact = doerContacts[key];
+    if (!contact || !contact.phone) {
+      alert("No WhatsApp number saved for " + taskFilterDoer + " yet. Add it under the Doer Contacts tab.");
+      return;
+    }
+
+    const phone = normalizePhoneForWa(contact.phone);
+    const tasks = getFilteredTasksForDoer(taskFilterDoer);
+
+    let msg;
+    if (tasks.length) {
+      const lines = tasks.map(function(t) {
+        return "- " + t.id + " (" + processLabel(t.process) + ")" + (t.step ? ": " + t.step : "");
+      });
+      msg = "Hi " + taskFilterDoer + ", you have " + tasks.length +
+        " pending task(s):\n\n" + lines.join("\n") + "\n\nPlease action these soon.";
+    } else {
+      msg = "Hi " + taskFilterDoer + ", please check your pending tasks on the Purchase Operations Dashboard.";
+    }
+
+    window.open("https://wa.me/" + phone + "?text=" + encodeURIComponent(msg), "_blank");
   }
 
   function renderTable() {
@@ -1053,6 +1210,8 @@
     linksPanel.style.display = "none";
     analyticsPanel.style.display = "none";
 
+    updateBulkWhatsAppButton();
+
     if (activeProcess === "All") {
       renderAllView(thead, tbody, search);
     } else {
@@ -1083,7 +1242,7 @@
       </tr>
     `;
 
-    let rows = allTasksFlat().filter(function(t) { return matchesSearch(t.fields, search); });
+    let rows = allTasksFlat().filter(function(t) { return matchesSearch(t.fields, search) && matchesTaskFilters(t.fields); });
 
     if (!rows.length) {
       tbody.innerHTML = `<tr><td colspan="${showAction ? 9 : 8}"><div class="empty-state">No pending tasks found.</div></td></tr>`;
@@ -1161,7 +1320,7 @@
     let rows = Object.keys(tasks)
       .map(function(taskId) { return { id: taskId, fields: tasks[taskId] || {} }; })
       .filter(function(t) { return isMyTask(t.fields); })
-      .filter(function(t) { return matchesSearch(t.fields, search); });
+      .filter(function(t) { return matchesSearch(t.fields, search) && matchesTaskFilters(t.fields); });
 
     if (!rows.length) {
       tbody.innerHTML = `<tr><td colspan="${headerDefs.length + (showAction ? 1 : 0) || 1}"><div class="empty-state">No pending tasks found.</div></td></tr>`;
