@@ -5,10 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Purchase Operations Dashboard</title>
 
-<!-- Makes this installable / app-like on mobile home screens.
-     Note: this requires the page to be served over HTTPS (e.g. GitHub
-     Pages, Firebase Hosting, Netlify) — it will NOT work when opened
-     directly from a local file (file:///...). -->
 <meta name="theme-color" content="#101828">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -188,8 +184,6 @@
 
   table { width: 100%; border-collapse: collapse; min-width: 900px; }
 
-  /* First column stays visible while scrolling sideways, so you never
-     lose track of which row/task you're looking at. */
   th:first-child, td:first-child {
     position: sticky;
     left: 0;
@@ -253,7 +247,6 @@
     color: #8b8677; font-size: 12px; font-family: var(--font-mono);
   }
 
-  /* ---------- Login screen ---------- */
   #loginScreen {
     min-height: 100vh;
     display: flex;
@@ -444,10 +437,6 @@
 
   .save-toast.show { opacity: 1; transform: translateY(0); }
 
-  /* FIX: CSS multi-column layout (column-count) doesn't reflow properly
-     when a card expands/collapses via JS — this is what was causing cards
-     to visually overlap and hide behind their neighbours. A grid lays
-     cards out in clean rows/columns and never overlaps. */
   .card-list {
     display: grid;
     grid-template-columns: 1fr;
@@ -602,7 +591,6 @@
 
   #dashboardScreen { display: none; }
 
-  /* ===================== MOBILE RESPONSIVE ===================== */
   @media (max-width: 900px) {
     .summary-strip { grid-template-columns: repeat(2, 1fr); }
   }
@@ -631,9 +619,6 @@
 
     #bulkWhatsAppBtn, #taskToolbar > .btn { width: 100%; }
 
-    /* Card details collapse to a single, compact table-row layout —
-       label on the left, value on the right of the same line, so a
-       whole card stays scannable without excess scrolling. */
     .card-detail-grid { grid-template-columns: 1fr; }
     .card-detail-row {
       flex-direction: row; align-items: baseline; justify-content: space-between;
@@ -656,7 +641,6 @@
 </head>
 <body>
 
-  <!-- ===================== LOGIN SCREEN ===================== -->
   <div id="loginScreen">
     <div class="login-card">
       <h2>Purchase Operations</h2>
@@ -676,7 +660,6 @@
     </div>
   </div>
 
-  <!-- ===================== DASHBOARD SCREEN ===================== -->
   <div id="dashboardScreen">
   <div class="header">
     <div class="header-inner">
@@ -775,7 +758,6 @@
     <div class="footer-note">Auto-refreshes every 15 seconds // Data mirrored from Google Sheets via Firebase // Columns shown match each tab's actual sheet columns</div>
   </div>
   </div>
-  <!-- end #dashboardScreen -->
 
   <div class="save-toast" id="saveToast"></div>
 
@@ -784,25 +766,22 @@
   const REFRESH_INTERVAL_MS = 15000;
   const SESSION_KEY = "pd_session_v1";
 
-  // Core fields common across most process tabs (used for the "All" view
-  // and for stats). Everything else is treated as process-specific.
   const CORE_KEYS = ["ID", "Site", "Site_Code", "Doer", "Planned", "Delay"];
 
-  let rawTasks = {};   // { processKey: { taskId: {...fields} } }
-  let meta = {};        // { processKey: { headers: [{key,label}], label } }
-  let doerContacts = {}; // { doerKey: { doerName, phone, email } }
-  let quickLinks = {};   // { linkId: { label, url } }
-  let taskExtras = {};   // { processKey: { taskId: { buttons: [{label,url}] } } }
-  let activeProcess = "All"; // "All" | processKey | "__doerContacts__" | "__quickLinks__"
-  let taskFilterDoer = "";     // selected Doer in the task-list filter row
-  let taskFilterStep = "";     // selected Step in the task-list filter row
-  let taskFilterDateFrom = ""; // "yyyy-MM-dd" or ""
-  let taskFilterDateTo = "";   // "yyyy-MM-dd" or ""
-  let currentUser = null; // { username, doerName, role }
-  let expandedCards = {}; // { cardKey: true } — persists across the 15s auto-refresh
+  let rawTasks = {};
+  let meta = {};
+  let doerContacts = {};
+  let quickLinks = {};
+  let taskExtras = {};
+  let activeProcess = "All";
+  let taskFilterDoer = "";
+  let taskFilterStep = "";
+  let taskFilterDateFrom = "";
+  let taskFilterDateTo = "";
+  let currentUser = null;
+  let expandedCards = {};
   let pollTimer = null;
 
-  /* ---------------- LOGIN / SESSION ---------------- */
   function loadSession() {
     try {
       const raw = localStorage.getItem(SESSION_KEY);
@@ -890,8 +869,6 @@
     return !!mine && doer === mine;
   }
 
-  // The sheet spells this column "Delay" on some tabs and "Deley" (typo)
-  // on others — detect either, case-insensitively, instead of a fixed key.
   function isDelayHeaderKey(key) {
     return /^del(a|e)y$/i.test(String(key || "").trim());
   }
@@ -903,7 +880,6 @@
   }
 
   function linkChipHtml(label, url) {
-    // Match "Task Link", "Task_Link", "Task-Link" etc, not just a literal space.
     const isTaskLink = /task[\s_-]*link/i.test(label);
     const cls = isTaskLink ? "link-chip task-link-chip" : "link-chip";
     const icon = isTaskLink ? "✓ " : "";
@@ -915,27 +891,14 @@
     const s = v.trim();
     if (!s) return false;
     if (/^https?:\/\//i.test(s)) return true;
-    // Also treat protocol-less URLs as links (common when pasted from
-    // Sheets without "https://", e.g. "docs.google.com/forms/..." or
-    // "www.example.com/xyz") — these were previously silently ignored,
-    // which is why the Task Link / Complete Task button showed up for
-    // some rows but not others depending only on whether that particular
-    // cell happened to include "https://".
     return /^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/[^\s]*)?$/i.test(s) && s.indexOf(" ") === -1;
   }
 
-  // Ensures a link value always has a protocol before it's used as an
-  // href, since isLinkValue() now also accepts protocol-less URLs.
   function normalizeLinkHref(v) {
     const s = String(v || "").trim();
     return /^https?:\/\//i.test(s) ? s : "https://" + s;
   }
 
-  // Delay is a duration like "20:44:29" (positive = overdue by that much)
-  // or "-27:15:31" (negative = still has that much time left, NOT overdue).
-  // Parsed to actual seconds (rather than just checking the first
-  // character) so it's immune to different minus-sign characters or
-  // spacing that Google Sheets might use.
   function parseDurationToSeconds(v) {
     const raw = String(v || "").trim();
     if (!raw) return null;
@@ -973,18 +936,15 @@
   }
 
   function findCompleteLink(fields, headerDefs) {
-    // Prefer a column literally called "Task Link" / "Task_Link" / "Task-Link"
     const named = headerDefs.find(function(h) {
       return /task[\s_-]*link/i.test(h.label) && isLinkValue(fields[h.key]);
     });
     if (named) return normalizeLinkHref(fields[named.key]);
 
-    // Otherwise, first link-valued field
     const anyLink = headerDefs.find(function(h) { return isLinkValue(fields[h.key]); });
     return anyLink ? normalizeLinkHref(fields[anyLink.key]) : null;
   }
 
-  /* ---------------- DATA ---------------- */
   function processLabel(key) {
     return (meta[key] && meta[key].label) || key.replace(/_/g, " ");
   }
@@ -1011,10 +971,6 @@
       meta[key].headers.forEach(function(h) { seenSet[h.key] = true; seen.push(h); });
     }
 
-    // Also pick up any column that exists on actual task rows but is
-    // missing from meta.headers (meta can go stale if it was generated
-    // before a column, e.g. "Task Link", was added to the sheet) —
-    // without this, that column silently never renders for any task.
     Object.values(tasks).forEach(function(f) {
       Object.keys(f || {}).forEach(function(k) {
         if (!seenSet[k]) { seenSet[k] = true; seen.push({ key: k, label: k.replace(/_/g, " ") }); }
@@ -1050,8 +1006,6 @@
     }
   }
 
-  // Flattened task list, already filtered down to "my tasks" if the
-  // logged-in user is a doer (not admin).
   function allTasksFlat() {
     const list = [];
     Object.keys(rawTasks).forEach(function(processKey) {
@@ -1093,17 +1047,23 @@
   function setProcess(p) {
     activeProcess = p;
     renderTabs();
+    renderStats();
     renderTable();
   }
 
   function renderStats() {
     const flat = allTasksFlat();
-    const total = flat.length;
-    const delayed = flat.filter(function(t) { return isDelayedValue(getDelayValue(t.fields)); }).length;
-    const sites = new Set(flat.map(function(t) {
+    const isSpecificProcessTab = activeProcess !== "All" && rawTasks.hasOwnProperty(activeProcess);
+    const scoped = isSpecificProcessTab
+      ? flat.filter(function(t) { return t.process === activeProcess; })
+      : flat;
+
+    const total = scoped.length;
+    const delayed = scoped.filter(function(t) { return isDelayedValue(getDelayValue(t.fields)); }).length;
+    const sites = new Set(scoped.map(function(t) {
       return String(t.fields.Site || t.fields.Site_Code || "").trim();
     }).filter(Boolean));
-    const processesWithData = new Set(flat.map(function(t) { return t.process; }));
+    const processesWithData = new Set(scoped.map(function(t) { return t.process; }));
 
     document.getElementById("statTotal").textContent = total;
     document.getElementById("statDelayed").textContent = delayed;
@@ -1116,9 +1076,6 @@
     return Object.values(fields).join(" ").toLowerCase().includes(search);
   }
 
-  // Parses the "Planned" field into a real Date, whatever reasonable format
-  // it was written in (dd/MM/yyyy, dd/MM/yyyy HH:mm:ss, ISO, etc). Returns
-  // null if it can't be parsed at all.
   function parsePlannedDate(v) {
     const s = String(v || "").trim();
     if (!s) return null;
@@ -1135,8 +1092,6 @@
     return isNaN(d2.getTime()) ? null : d2;
   }
 
-  // Applies the toolbar's Doer + Date-range filter (matched against the
-  // "Planned" timestamp field) to a task's fields.
   function matchesTaskFilters(fields) {
     if (taskFilterDoer) {
       const doer = String(fields.Doer || "").trim().toLowerCase();
@@ -1150,7 +1105,7 @@
 
     if (taskFilterDateFrom || taskFilterDateTo) {
       const d = parsePlannedDate(fields.Planned);
-      if (!d) return false; // date filter active but this row has no usable date — exclude it
+      if (!d) return false;
       if (taskFilterDateFrom && d < new Date(taskFilterDateFrom + "T00:00:00")) return false;
       if (taskFilterDateTo && d > new Date(taskFilterDateTo + "T23:59:59")) return false;
     }
@@ -1167,8 +1122,6 @@
     }).join("");
   }
 
-  // Every distinct Step (task name) currently in view, across all processes
-  // — used to populate the Step filter dropdown.
   function getAllStepNames() {
     const names = new Set();
     Object.keys(rawTasks).forEach(function(processKey) {
@@ -1213,8 +1166,6 @@
     renderTable();
   }
 
-  // Every pending task for a given Doer, across ALL processes, respecting
-  // the active date-range filter (if any) — used by the bulk WhatsApp send.
   function getFilteredTasksForDoer(doerName) {
     const mine = String(doerName || "").trim().toLowerCase();
     const list = [];
@@ -1248,9 +1199,6 @@
     btn.textContent = "WhatsApp — All Pending (" + tasks.length + ")";
   }
 
-  // Sends ONE WhatsApp message to the currently doer-filtered Doer,
-  // listing every one of their pending tasks (respecting the date filter
-  // if one is set) in a single message.
   function sendBulkWhatsAppForFilteredDoer() {
     if (!taskFilterDoer) return;
     const key = sanitizeKeyClient(taskFilterDoer.toLowerCase());
@@ -1333,10 +1281,6 @@
     }
   }
 
-  // "All" tab: consolidated view across every process using the fields
-  // that are common to (almost) every FMS tab, plus a Links column
-  // gathering every URL-valued field, plus a compact Details column for
-  // everything else so no data is hidden even in the combined view.
   function renderAllView(thead, tbody, search) {
     const showComplete = currentUser && currentUser.role !== "admin";
     const showWhatsApp = currentUser && currentUser.role === "admin";
@@ -1375,7 +1319,7 @@
       headerDefs.forEach(function(h) {
         const val = f[h.key];
         if (val === undefined || val === null || String(val).trim() === "") return;
-        if (CORE_KEYS.indexOf(h.key) !== -1 || isDelayHeaderKey(h.key)) return; // already shown in core columns
+        if (CORE_KEYS.indexOf(h.key) !== -1 || isDelayHeaderKey(h.key)) return;
 
         if (isLinkValue(val)) {
           linkChips.push(linkChipHtml(h.label, val));
@@ -1417,9 +1361,6 @@
     }).join("");
   }
 
-  // Single-process tab: render every column exactly as it appears in that
-  // sheet tab, in the same order, with any URL-valued cell rendered as a
-  // clickable button instead of a raw string.
   function renderProcessView(thead, tbody, processKey, search) {
     const headerDefs = processHeaders(processKey);
     const showComplete = currentUser && currentUser.role !== "admin";
@@ -1480,7 +1421,6 @@
     }).join("");
   }
 
-  /* ---------------- QUICK LINKS BAR (everyone) ---------------- */
   function renderQuickLinksBar() {
     const bar = document.getElementById("quickLinksBar");
     const ids = Object.keys(quickLinks);
@@ -1494,7 +1434,6 @@
     }).join("");
   }
 
-  /* ---------------- DOER CONTACTS PANEL (admin only) ---------------- */
   function getAllDoerNames() {
     const names = new Set();
 
@@ -1609,7 +1548,6 @@
     window.open("https://wa.me/" + phone + "?text=" + encodeURIComponent(msg), "_blank");
   }
 
-  /* ---------------- QUICK LINKS MANAGEMENT PANEL (admin only) ---------------- */
   function renderQuickLinksPanel() {
     const list = document.getElementById("quickLinksList");
     const ids = Object.keys(quickLinks);
@@ -1676,7 +1614,6 @@
     setTimeout(function() { el.classList.remove("show"); }, 2500);
   }
 
-  /* ---------------- MOBILE CARD VIEW ---------------- */
   function getTaskExtraButtons(processKey, taskId) {
     return (taskExtras[processKey] && taskExtras[processKey][taskId] && taskExtras[processKey][taskId].buttons) || [];
   }
@@ -1760,9 +1697,6 @@
     if (el) el.classList.toggle("expanded", expandedCards[cardKey]);
   }
 
-  // Buttons added here are tied to this exact task (process + task ID),
-  // so they show up consistently everywhere this task appears (mobile
-  // card, desktop table row) until removed.
   async function addTaskButton(processKey, taskId) {
     const cardKey = processKey + "__" + taskId;
     const label = (document.getElementById("lbl_" + cardKey).value || "").trim();
@@ -1807,7 +1741,6 @@
     }
   }
 
-  /* ---------------- ANALYTICS (admin only) ---------------- */
   let doerChartInstance = null;
   let analyticsFilterDoer = "";
   let analyticsFilterSite = "";
@@ -1876,7 +1809,6 @@
     renderDoerAnalytics();
   }
 
-  // Every doer, workload split on-time vs delayed.
   function renderOverviewChart(canvas) {
     const byDoer = {};
     Object.keys(rawTasks).forEach(function(processKey) {
@@ -1900,8 +1832,6 @@
     );
   }
 
-  // One doer, broken down by which process their tasks belong to — useful
-  // when a doer has tasks spread across multiple FMS processes.
   function renderDoerDrilldownChart(canvas, doerName) {
     const byProcess = {};
     Object.keys(rawTasks).forEach(function(processKey) {
@@ -1922,8 +1852,6 @@
     );
   }
 
-  // One site, broken down by which doer has tasks there — useful when
-  // multiple people are working at the same site.
   function renderSiteDrilldownChart(canvas, site) {
     const byDoer = {};
     Object.keys(rawTasks).forEach(function(processKey) {
@@ -2011,8 +1939,6 @@
       .replace(/>/g, "&gt;");
   }
 
-  // On page load: if a session already exists, skip straight to the
-  // dashboard. Otherwise show the login screen (which is the default).
   (function init() {
     const session = loadSession();
     if (session && session.username) {
