@@ -404,13 +404,13 @@
   .whatsapp-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
 
   .add-link-form {
-    display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px;
+    display: grid; grid-template-columns: 1fr 1.6fr 1fr 1fr auto; gap: 10px;
     margin-bottom: 20px;
   }
 
-  .add-link-form input {
+  .add-link-form input, .add-link-form select {
     padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 8px;
-    font-size: 13px; font-family: var(--font-body); outline: none;
+    font-size: 13px; font-family: var(--font-body); outline: none; background: #fff;
   }
 
   .add-link-btn { background: var(--amber); color: #fff; padding: 10px 18px; }
@@ -558,6 +558,10 @@
     font-size: 12.5px; font-family: var(--font-body); outline: none;
   }
 
+  .add-task-btn-note {
+    grid-column: 1 / -1; font-size: 10.5px; color: var(--muted); margin-top: -2px;
+  }
+
   .card-list .empty-state { background: #fff; border-radius: 12px; border: 1px solid var(--line); }
 
   .chart-box { position: relative; height: 380px; margin-top: 8px; }
@@ -632,6 +636,8 @@
     .task-card-summary { padding: 12px 12px; gap: 8px; }
     .tcs-doer { font-size: 13.5px; }
     .tcs-step { font-size: 11.5px; }
+
+    .add-link-form { grid-template-columns: 1fr; }
   }
 
   @media (max-width: 420px) {
@@ -694,6 +700,8 @@
 
     <div class="tabs" id="tabsRow"></div>
 
+    <div class="quick-links-bar" id="taskQuickLinksBar"></div>
+
     <div class="toolbar" id="taskToolbar">
       <div class="search-box">
         <input type="text" id="searchInput" placeholder="Search everything in this view…" oninput="renderTable()">
@@ -730,10 +738,12 @@
 
     <div class="card admin-panel-card" id="quickLinksPanel" style="display:none;">
       <h3>Quick Links</h3>
-      <p class="sub">Buttons you add here show up in a bar at the top of the dashboard for everyone.</p>
+      <p class="sub">Buttons you add here can be shown to everyone or just one user, and either globally at the top or only inside one specific task/tab.</p>
       <div class="add-link-form">
         <input type="text" id="newLinkLabel" placeholder="Button label (e.g. WhatsApp Group)">
         <input type="text" id="newLinkUrl" placeholder="https://…">
+        <select id="newLinkUser"><option value="">Everyone</option></select>
+        <select id="newLinkProcess"><option value="">All Tasks (Global)</option></select>
         <button class="add-link-btn" onclick="addQuickLink()">Add Button</button>
       </div>
       <div id="quickLinksList"></div>
@@ -773,6 +783,7 @@
   let doerContacts = {};
   let quickLinks = {};
   let taskExtras = {};
+  let allUsers = {};
   let activeProcess = "All";
   let taskFilterDoer = "";
   let taskFilterStep = "";
@@ -982,18 +993,20 @@
 
   async function fetchData() {
     try {
-      const [tasksRes, metaRes, contactsRes, linksRes, extrasRes] = await Promise.all([
+      const [tasksRes, metaRes, contactsRes, linksRes, extrasRes, usersRes] = await Promise.all([
         fetch(FIREBASE_URL + "/tasks.json"),
         fetch(FIREBASE_URL + "/meta.json"),
         fetch(FIREBASE_URL + "/doerContacts.json"),
         fetch(FIREBASE_URL + "/customButtons.json"),
-        fetch(FIREBASE_URL + "/taskExtras.json")
+        fetch(FIREBASE_URL + "/taskExtras.json"),
+        fetch(FIREBASE_URL + "/users.json")
       ]);
       rawTasks = (await tasksRes.json()) || {};
       meta = (await metaRes.json()) || {};
       doerContacts = (await contactsRes.json()) || {};
       quickLinks = (await linksRes.json()) || {};
       taskExtras = (await extrasRes.json()) || {};
+      allUsers = (await usersRes.json()) || {};
 
       document.getElementById("lastUpdated").textContent = "Live — updated " + new Date().toLocaleTimeString();
       renderQuickLinksBar();
@@ -1235,6 +1248,7 @@
     const contactsPanel = document.getElementById("doerContactsPanel");
     const linksPanel = document.getElementById("quickLinksPanel");
     const analyticsPanel = document.getElementById("analyticsPanel");
+    const taskLinksBar = document.getElementById("taskQuickLinksBar");
 
     if (activeProcess === "__doerContacts__") {
       toolbar.style.display = "none";
@@ -1242,6 +1256,7 @@
       linksPanel.style.display = "none";
       analyticsPanel.style.display = "none";
       contactsPanel.style.display = "block";
+      if (taskLinksBar) taskLinksBar.innerHTML = "";
       renderDoerContactsPanel();
       return;
     }
@@ -1252,6 +1267,7 @@
       contactsPanel.style.display = "none";
       analyticsPanel.style.display = "none";
       linksPanel.style.display = "block";
+      if (taskLinksBar) taskLinksBar.innerHTML = "";
       renderQuickLinksPanel();
       return;
     }
@@ -1262,6 +1278,7 @@
       contactsPanel.style.display = "none";
       linksPanel.style.display = "none";
       analyticsPanel.style.display = "block";
+      if (taskLinksBar) taskLinksBar.innerHTML = "";
       renderDoerAnalytics();
       return;
     }
@@ -1272,6 +1289,7 @@
     linksPanel.style.display = "none";
     analyticsPanel.style.display = "none";
 
+    renderTaskQuickLinksBar();
     updateBulkWhatsAppButton();
 
     if (activeProcess === "All") {
@@ -1421,15 +1439,52 @@
     }).join("");
   }
 
+  function currentUserMatches(assignedUsername) {
+    if (!assignedUsername) return true;
+    if (!currentUser) return false;
+    return String(currentUser.username || "").trim().toLowerCase() === String(assignedUsername).trim().toLowerCase();
+  }
+
   function renderQuickLinksBar() {
     const bar = document.getElementById("quickLinksBar");
     const ids = Object.keys(quickLinks);
 
-    if (!ids.length) { bar.innerHTML = ""; return; }
-
-    bar.innerHTML = ids.map(function(id) {
+    const visible = ids.filter(function(id) {
       const link = quickLinks[id] || {};
-      if (!link.url) return "";
+      if (!link.url) return false;
+      if (link.processKey) return false; // task-specific links show inside their own tab, not the global bar
+      return currentUserMatches(link.assignedUser);
+    });
+
+    if (!visible.length) { bar.innerHTML = ""; return; }
+
+    bar.innerHTML = visible.map(function(id) {
+      const link = quickLinks[id] || {};
+      return `<a class="quick-link-btn" href="${escapeAttr(link.url)}" target="_blank" rel="noopener">🔗 ${escapeHtml(link.label || link.url)}</a>`;
+    }).join("");
+  }
+
+  function renderTaskQuickLinksBar() {
+    const bar = document.getElementById("taskQuickLinksBar");
+    if (!bar) return;
+
+    if (activeProcess === "All" || !rawTasks.hasOwnProperty(activeProcess)) {
+      bar.innerHTML = "";
+      return;
+    }
+
+    const ids = Object.keys(quickLinks);
+    const visible = ids.filter(function(id) {
+      const link = quickLinks[id] || {};
+      if (!link.url) return false;
+      if (link.processKey !== activeProcess) return false;
+      return currentUserMatches(link.assignedUser);
+    });
+
+    if (!visible.length) { bar.innerHTML = ""; return; }
+
+    bar.innerHTML = visible.map(function(id) {
+      const link = quickLinks[id] || {};
       return `<a class="quick-link-btn" href="${escapeAttr(link.url)}" target="_blank" rel="noopener">🔗 ${escapeHtml(link.label || link.url)}</a>`;
     }).join("");
   }
@@ -1548,7 +1603,33 @@
     window.open("https://wa.me/" + phone + "?text=" + encodeURIComponent(msg), "_blank");
   }
 
+  function populateQuickLinkFormSelects() {
+    const userSel = document.getElementById("newLinkUser");
+    const procSel = document.getElementById("newLinkProcess");
+    if (!userSel || !procSel) return;
+
+    const users = Object.keys(allUsers).map(function(k) { return allUsers[k]; })
+      .filter(function(u) { return u && u.username; })
+      .sort(function(a, b) { return String(a.username).localeCompare(String(b.username)); });
+
+    const currentUserVal = userSel.value;
+    userSel.innerHTML = '<option value="">Everyone</option>' + users.map(function(u) {
+      const label = u.doerName ? (u.username + " — " + u.doerName) : u.username;
+      return `<option value="${escapeAttr(u.username)}">${escapeHtml(label)}</option>`;
+    }).join("");
+    userSel.value = currentUserVal;
+
+    const processes = Object.keys(rawTasks);
+    const currentProcVal = procSel.value;
+    procSel.innerHTML = '<option value="">All Tasks (Global)</option>' + processes.map(function(p) {
+      return `<option value="${escapeAttr(p)}">${escapeHtml(processLabel(p))}</option>`;
+    }).join("");
+    procSel.value = currentProcVal;
+  }
+
   function renderQuickLinksPanel() {
+    populateQuickLinkFormSelects();
+
     const list = document.getElementById("quickLinksList");
     const ids = Object.keys(quickLinks);
 
@@ -1559,9 +1640,11 @@
 
     list.innerHTML = ids.map(function(id) {
       const link = quickLinks[id] || {};
+      const forWho = link.assignedUser ? ("for " + link.assignedUser) : "for Everyone";
+      const inTask = link.processKey ? ("in " + processLabel(link.processKey)) : "Global (top bar)";
       return `
         <div class="link-list-row">
-          <div class="info"><b>${escapeHtml(link.label || "")}</b><span>${escapeHtml(link.url || "")}</span></div>
+          <div class="info"><b>${escapeHtml(link.label || "")}</b><span>${escapeHtml(link.url || "")} · ${escapeHtml(forWho)} · ${escapeHtml(inTask)}</span></div>
           <button class="delete-link-btn" onclick="deleteQuickLink('${id}')">Delete</button>
         </div>
       `;
@@ -1571,22 +1654,28 @@
   async function addQuickLink() {
     const label = (document.getElementById("newLinkLabel").value || "").trim();
     let url = (document.getElementById("newLinkUrl").value || "").trim();
+    const assignedUser = (document.getElementById("newLinkUser").value || "").trim();
+    const processKey = (document.getElementById("newLinkProcess").value || "").trim();
     if (!label || !url) { showSaveToast("Enter both a label and a URL"); return; }
     if (!/^https?:\/\//i.test(url)) url = "https://" + url;
 
     const id = "l" + Date.now();
+    const payload = { label: label, url: url, assignedUser: assignedUser, processKey: processKey };
 
     try {
       await fetch(FIREBASE_URL + "/customButtons/" + id + ".json", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: label, url: url })
+        body: JSON.stringify(payload)
       });
-      quickLinks[id] = { label: label, url: url };
+      quickLinks[id] = payload;
       document.getElementById("newLinkLabel").value = "";
       document.getElementById("newLinkUrl").value = "";
+      document.getElementById("newLinkUser").value = "";
+      document.getElementById("newLinkProcess").value = "";
       renderQuickLinksPanel();
       renderQuickLinksBar();
+      renderTaskQuickLinksBar();
       showSaveToast("Button added");
     } catch (err) {
       console.error(err);
@@ -1600,6 +1689,7 @@
       delete quickLinks[id];
       renderQuickLinksPanel();
       renderQuickLinksBar();
+      renderTaskQuickLinksBar();
       showSaveToast("Button removed");
     } catch (err) {
       console.error(err);
@@ -1614,8 +1704,34 @@
     setTimeout(function() { el.classList.remove("show"); }, 2500);
   }
 
-  function getTaskExtraButtons(processKey, taskId) {
-    return (taskExtras[processKey] && taskExtras[processKey][taskId] && taskExtras[processKey][taskId].buttons) || [];
+  // Buttons added on a card are stored per TASK NAME (Step), not per row —
+  // so adding one on any card for a given Step shows it on every card that
+  // shares that same Step within the process. Rows with no Step text fall
+  // back to a per-row key (old behaviour) since there's nothing to group by.
+  function taskExtraStepKey(step) {
+    const s = String(step || "").trim().toLowerCase();
+    return s ? "step_" + sanitizeKeyClient(s) : "";
+  }
+
+  // Returns [{ button, key, index }] merging the new step-grouped buttons
+  // with any legacy per-row buttons that were saved before this change.
+  function getTaskExtraEntries(processKey, taskId, step) {
+    const entries = [];
+    const stepKey = taskExtraStepKey(step);
+
+    if (stepKey && taskExtras[processKey] && taskExtras[processKey][stepKey]) {
+      (taskExtras[processKey][stepKey].buttons || []).forEach(function(b, i) {
+        entries.push({ button: b, key: stepKey, index: i });
+      });
+    }
+
+    if (taskExtras[processKey] && taskExtras[processKey][taskId]) {
+      (taskExtras[processKey][taskId].buttons || []).forEach(function(b, i) {
+        entries.push({ button: b, key: taskId, index: i });
+      });
+    }
+
+    return entries;
   }
 
   function buildTaskCard(processKey, taskId, f, headerDefs) {
@@ -1641,10 +1757,11 @@
     });
 
     const isAdmin = currentUser && currentUser.role === "admin";
-    const extras = getTaskExtraButtons(processKey, taskId);
-    const extraChips = extras.map(function(b, i) {
+    const entries = getTaskExtraEntries(processKey, taskId, step);
+    const extraChips = entries.map(function(entry) {
+      const b = entry.button;
       const delBtn = isAdmin
-        ? `<span class="extra-chip-del" onclick="event.stopPropagation(); deleteTaskButton('${processKey}','${taskId}',${i})">×</span>`
+        ? `<span class="extra-chip-del" onclick="event.stopPropagation(); deleteTaskButton('${processKey}','${entry.key}',${entry.index})">×</span>`
         : "";
       return `<span class="extra-chip-wrap"><a class="link-chip extra-chip" href="${escapeAttr(b.url)}" target="_blank" rel="noopener">${escapeHtml(b.label)} ↗</a>${delBtn}</span>`;
     }).join("");
@@ -1654,11 +1771,13 @@
       actionHtml = `<button class="whatsapp-btn" onclick="event.stopPropagation(); sendWhatsAppForTask('${escapeAttr(doer).replace(/'/g,"\\'")}', '${escapeAttr(displayId)}', '${processKey}', '${escapeAttr(step).replace(/'/g,"\\'")}')">WhatsApp</button>`;
     }
 
+    const stepAttr = escapeAttr(step).replace(/'/g,"\\'");
     const addButtonForm = isAdmin ? `
       <div class="add-task-btn-form" onclick="event.stopPropagation();">
         <input type="text" id="lbl_${cardKey}" placeholder="Button label">
         <input type="text" id="url_${cardKey}" placeholder="https://…">
-        <button class="add-link-btn" onclick="addTaskButton('${processKey}', '${taskId}')">+ Add</button>
+        <button class="add-link-btn" onclick="addTaskButton('${processKey}', '${taskId}', '${stepAttr}')">+ Add</button>
+        ${step ? `<div class="add-task-btn-note">Applies to every card with the "${escapeHtml(step)}" step</div>` : ""}
       </div>
     ` : "";
 
@@ -1697,25 +1816,28 @@
     if (el) el.classList.toggle("expanded", expandedCards[cardKey]);
   }
 
-  async function addTaskButton(processKey, taskId) {
+  async function addTaskButton(processKey, taskId, step) {
     const cardKey = processKey + "__" + taskId;
     const label = (document.getElementById("lbl_" + cardKey).value || "").trim();
     let url = (document.getElementById("url_" + cardKey).value || "").trim();
     if (!label || !url) { showSaveToast("Enter both a label and a URL"); return; }
     if (!/^https?:\/\//i.test(url)) url = "https://" + url;
 
-    const existing = getTaskExtraButtons(processKey, taskId);
+    // Group by Step when the row has one, so the button shows on every card
+    // for that task. Falls back to the row's own id when there's no Step.
+    const key = taskExtraStepKey(step) || taskId;
+    const existing = (taskExtras[processKey] && taskExtras[processKey][key] && taskExtras[processKey][key].buttons) || [];
     const updated = existing.concat([{ label: label, url: url }]);
 
     try {
-      await fetch(FIREBASE_URL + "/taskExtras/" + processKey + "/" + taskId + ".json", {
+      await fetch(FIREBASE_URL + "/taskExtras/" + processKey + "/" + key + ".json", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ buttons: updated })
       });
       if (!taskExtras[processKey]) taskExtras[processKey] = {};
-      taskExtras[processKey][taskId] = { buttons: updated };
-      showSaveToast("Button added to this task");
+      taskExtras[processKey][key] = { buttons: updated };
+      showSaveToast(step ? "Button added to all '" + step + "' cards" : "Button added to this task");
       renderTable();
     } catch (err) {
       console.error(err);
@@ -1723,18 +1845,18 @@
     }
   }
 
-  async function deleteTaskButton(processKey, taskId, index) {
-    const existing = getTaskExtraButtons(processKey, taskId);
+  async function deleteTaskButton(processKey, key, index) {
+    const existing = (taskExtras[processKey] && taskExtras[processKey][key] && taskExtras[processKey][key].buttons) || [];
     const updated = existing.filter(function(_, i) { return i !== index; });
 
     try {
-      await fetch(FIREBASE_URL + "/taskExtras/" + processKey + "/" + taskId + ".json", {
+      await fetch(FIREBASE_URL + "/taskExtras/" + processKey + "/" + key + ".json", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ buttons: updated })
       });
       if (!taskExtras[processKey]) taskExtras[processKey] = {};
-      taskExtras[processKey][taskId] = { buttons: updated };
+      taskExtras[processKey][key] = { buttons: updated };
       renderTable();
     } catch (err) {
       console.error(err);
