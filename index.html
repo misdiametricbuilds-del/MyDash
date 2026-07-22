@@ -346,13 +346,21 @@
   .process-doers-bar:empty { margin-bottom: 0; }
   .process-doers-bar { margin-bottom: 14px; }
 
+  .process-doers-header {
+    display: inline-flex; align-items: center; gap: 7px;
+    cursor: pointer; user-select: none; margin-bottom: 0;
+  }
+
+  .process-doers-header .chevron { font-size: 11px; }
+  .process-doers-header.expanded .chevron { transform: rotate(180deg); }
+
   .process-doers-label {
     font-size: 10.5px; font-weight: 700; color: var(--muted);
     text-transform: uppercase; letter-spacing: .5px; font-family: var(--font-mono);
-    margin-bottom: 7px;
   }
 
-  .process-doers-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .process-doers-chips { display: none; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+  .process-doers-chips.show { display: flex; }
 
   .doer-chip {
     display: inline-flex; align-items: center;
@@ -1079,6 +1087,7 @@
 
   function setProcess(p) {
     activeProcess = p;
+    processDoersExpanded = false;
     renderTabs();
     renderStats();
     renderTable();
@@ -1493,6 +1502,16 @@
     }).join("");
   }
 
+  let processDoersExpanded = false;
+
+  function toggleProcessDoers() {
+    processDoersExpanded = !processDoersExpanded;
+    const header = document.getElementById("processDoersHeader");
+    const chips = document.getElementById("processDoersChips");
+    if (header) header.classList.toggle("expanded", processDoersExpanded);
+    if (chips) chips.classList.toggle("show", processDoersExpanded);
+  }
+
   function renderProcessDoersBar() {
     const bar = document.getElementById("processDoersBar");
     if (!bar) return;
@@ -1507,10 +1526,18 @@
 
     if (!doers.length) { bar.innerHTML = ""; return; }
 
-    bar.innerHTML = `<div class="process-doers-label">Doers in this tab (${doers.length})</div>` +
-      `<div class="process-doers-chips">` +
-      doers.map(function(d) { return `<span class="doer-chip">${escapeHtml(d)}</span>`; }).join("") +
-      `</div>`;
+    const expandedClass = processDoersExpanded ? " expanded" : "";
+    const showClass = processDoersExpanded ? " show" : "";
+
+    bar.innerHTML = `
+      <div class="process-doers-header${expandedClass}" id="processDoersHeader" onclick="toggleProcessDoers()">
+        <span class="chevron">▾</span>
+        <span class="process-doers-label">Doers in this tab (${doers.length})</span>
+      </div>
+      <div class="process-doers-chips${showClass}" id="processDoersChips">
+        ${doers.map(function(d) { return `<span class="doer-chip">${escapeHtml(d)}</span>`; }).join("")}
+      </div>
+    `;
   }
 
   function renderTaskQuickLinksBar() {
