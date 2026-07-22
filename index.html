@@ -343,6 +343,24 @@
     margin-bottom: 16px;
   }
 
+  .process-doers-bar:empty { margin-bottom: 0; }
+  .process-doers-bar { margin-bottom: 14px; }
+
+  .process-doers-label {
+    font-size: 10.5px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .5px; font-family: var(--font-mono);
+    margin-bottom: 7px;
+  }
+
+  .process-doers-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  .doer-chip {
+    display: inline-flex; align-items: center;
+    background: #eef2f6; color: var(--steel); border: 1px solid var(--line-strong);
+    border-radius: 999px; padding: 4px 11px; font-size: 12px; font-weight: 700;
+    font-family: var(--font-display); letter-spacing: .1px;
+  }
+
   .quick-link-btn {
     display: inline-flex;
     align-items: center;
@@ -699,6 +717,8 @@
     </div>
 
     <div class="tabs" id="tabsRow"></div>
+
+    <div class="process-doers-bar" id="processDoersBar"></div>
 
     <div class="quick-links-bar" id="taskQuickLinksBar"></div>
 
@@ -1249,6 +1269,7 @@
     const linksPanel = document.getElementById("quickLinksPanel");
     const analyticsPanel = document.getElementById("analyticsPanel");
     const taskLinksBar = document.getElementById("taskQuickLinksBar");
+    const doersBar = document.getElementById("processDoersBar");
 
     if (activeProcess === "__doerContacts__") {
       toolbar.style.display = "none";
@@ -1257,6 +1278,7 @@
       analyticsPanel.style.display = "none";
       contactsPanel.style.display = "block";
       if (taskLinksBar) taskLinksBar.innerHTML = "";
+      if (doersBar) doersBar.innerHTML = "";
       renderDoerContactsPanel();
       return;
     }
@@ -1268,6 +1290,7 @@
       analyticsPanel.style.display = "none";
       linksPanel.style.display = "block";
       if (taskLinksBar) taskLinksBar.innerHTML = "";
+      if (doersBar) doersBar.innerHTML = "";
       renderQuickLinksPanel();
       return;
     }
@@ -1279,6 +1302,7 @@
       linksPanel.style.display = "none";
       analyticsPanel.style.display = "block";
       if (taskLinksBar) taskLinksBar.innerHTML = "";
+      if (doersBar) doersBar.innerHTML = "";
       renderDoerAnalytics();
       return;
     }
@@ -1289,6 +1313,7 @@
     linksPanel.style.display = "none";
     analyticsPanel.style.display = "none";
 
+    renderProcessDoersBar();
     renderTaskQuickLinksBar();
     updateBulkWhatsAppButton();
 
@@ -1440,6 +1465,10 @@
   }
 
   function currentUserMatches(assignedUsername) {
+    // Admins see every quick link regardless of who it's assigned to —
+    // only regular users are restricted to links assigned to them (or
+    // left unassigned / for everyone).
+    if (currentUser && currentUser.role === "admin") return true;
     if (!assignedUsername) return true;
     if (!currentUser) return false;
     return String(currentUser.username || "").trim().toLowerCase() === String(assignedUsername).trim().toLowerCase();
@@ -1462,6 +1491,26 @@
       const link = quickLinks[id] || {};
       return `<a class="quick-link-btn" href="${escapeAttr(link.url)}" target="_blank" rel="noopener">🔗 ${escapeHtml(link.label || link.url)}</a>`;
     }).join("");
+  }
+
+  function renderProcessDoersBar() {
+    const bar = document.getElementById("processDoersBar");
+    if (!bar) return;
+
+    const scoped = activeProcess === "All"
+      ? allTasksFlat()
+      : allTasksFlat().filter(function(t) { return t.process === activeProcess; });
+
+    const doers = Array.from(new Set(
+      scoped.map(function(t) { return String(t.fields.Doer || "").trim(); }).filter(Boolean)
+    )).sort(function(a, b) { return a.localeCompare(b); });
+
+    if (!doers.length) { bar.innerHTML = ""; return; }
+
+    bar.innerHTML = `<div class="process-doers-label">Doers in this tab (${doers.length})</div>` +
+      `<div class="process-doers-chips">` +
+      doers.map(function(d) { return `<span class="doer-chip">${escapeHtml(d)}</span>`; }).join("") +
+      `</div>`;
   }
 
   function renderTaskQuickLinksBar() {
