@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Purchase Operations Dashboard</title>
+<title>My Dashboard</title>
 
 <meta name="theme-color" content="#101828">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Purchase Dash">
-<link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Purchase%20Operations%20Dashboard%22%2C%22short_name%22%3A%22Purchase%20Dash%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23f1efe9%22%2C%22theme_color%22%3A%22%23101828%22%7D">
+<meta name="apple-mobile-web-app-title" content="My Dashboard">
+<link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22My%20Dashboard%22%2C%22short_name%22%3A%22My%20Dashboard%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23f1efe9%22%2C%22theme_color%22%3A%22%23101828%22%7D">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
@@ -621,6 +621,36 @@
 
   #dashboardScreen { display: none; }
 
+  .assign-users-row {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: #fafbfc;
+    margin-top: -4px;
+  }
+
+  .assign-users-label {
+    font-size: 10.5px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .4px; font-family: var(--font-mono);
+    flex-basis: 100%;
+  }
+
+  .assign-checkbox {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; font-family: var(--font-body); color: var(--text);
+    cursor: pointer; white-space: nowrap;
+  }
+
+  .assign-checkbox input[type="checkbox"] { cursor: pointer; width: 15px; height: 15px; }
+  .assign-checkbox input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
+
+  .everyone-checkbox { font-weight: 700; color: var(--steel); }
+
   @media (max-width: 900px) {
     .summary-strip { grid-template-columns: repeat(2, 1fr); }
   }
@@ -675,7 +705,7 @@
 
   <div id="loginScreen">
     <div class="login-card">
-      <h2>Purchase Operations</h2>
+      <h2>My Dashboard</h2>
       <p>Sign in with your username and password to see your tasks.</p>
 
       <div class="login-field">
@@ -696,7 +726,7 @@
   <div class="header">
     <div class="header-inner">
       <div>
-        <h1 id="dashTitle">Purchase Operations Dashboard</h1>
+        <h1 id="dashTitle">My Dashboard</h1>
         <p>Diametric Builds Pvt Ltd — Live Pending Task Tracker</p>
       </div>
       <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
@@ -766,13 +796,15 @@
 
     <div class="card admin-panel-card" id="quickLinksPanel" style="display:none;">
       <h3>Quick Links</h3>
-      <p class="sub">Buttons you add here can be shown to everyone or just one user, and either globally at the top or only inside one specific task/tab.</p>
+      <p class="sub">Buttons you add here can be shown to everyone or just the users you tick, and either globally at the top or only inside one specific task/tab.</p>
       <div class="add-link-form">
         <input type="text" id="newLinkLabel" placeholder="Button label (e.g. WhatsApp Group)">
         <input type="text" id="newLinkUrl" placeholder="https://…">
-        <select id="newLinkUser"><option value="">Everyone</option></select>
         <select id="newLinkProcess"><option value="">All Tasks (Global)</option></select>
         <button class="add-link-btn" onclick="addQuickLink()">Add Button</button>
+        <div class="assign-users-row" id="newLinkUsersRow">
+          <span class="assign-users-label">Assign to</span>
+        </div>
       </div>
       <div id="quickLinksList"></div>
     </div>
@@ -889,7 +921,7 @@
       currentUser.doerName || currentUser.username;
     document.getElementById("userChipRole").textContent = currentUser.role;
     document.getElementById("dashTitle").textContent =
-      currentUser.role === "admin" ? "Purchase Operations Dashboard" : "My Tasks";
+      currentUser.role === "admin" ? "My Dashboard" : "My Tasks";
 
     activeProcess = "All";
     fetchData();
@@ -1261,7 +1293,7 @@
       msg = "Hi " + taskFilterDoer + ", you have " + tasks.length +
         " pending task(s):\n\n" + lines.join("\n") + "\n\nPlease action these soon.";
     } else {
-      msg = "Hi " + taskFilterDoer + ", please check your pending tasks on the Purchase Operations Dashboard.";
+      msg = "Hi " + taskFilterDoer + ", please check your pending tasks on My Dashboard.";
     }
 
     window.open("https://wa.me/" + phone + "?text=" + encodeURIComponent(msg), "_blank");
@@ -1473,14 +1505,22 @@
     }).join("");
   }
 
-  function currentUserMatches(assignedUsername) {
+  function getAssignedUsersArray(link) {
+    if (!link) return [];
+    if (Array.isArray(link.assignedUsers)) return link.assignedUsers.filter(Boolean);
+    if (link.assignedUser) return [link.assignedUser];
+    return [];
+  }
+
+  function currentUserMatches(assignedUsers) {
     // Admins see every quick link regardless of who it's assigned to —
     // only regular users are restricted to links assigned to them (or
     // left unassigned / for everyone).
     if (currentUser && currentUser.role === "admin") return true;
-    if (!assignedUsername) return true;
+    if (!assignedUsers || !assignedUsers.length) return true;
     if (!currentUser) return false;
-    return String(currentUser.username || "").trim().toLowerCase() === String(assignedUsername).trim().toLowerCase();
+    const mine = String(currentUser.username || "").trim().toLowerCase();
+    return assignedUsers.some(function(u) { return String(u || "").trim().toLowerCase() === mine; });
   }
 
   function renderQuickLinksBar() {
@@ -1491,7 +1531,7 @@
       const link = quickLinks[id] || {};
       if (!link.url) return false;
       if (link.processKey) return false; // task-specific links show inside their own tab, not the global bar
-      return currentUserMatches(link.assignedUser);
+      return currentUserMatches(getAssignedUsersArray(link));
     });
 
     if (!visible.length) { bar.innerHTML = ""; return; }
@@ -1554,7 +1594,7 @@
       const link = quickLinks[id] || {};
       if (!link.url) return false;
       if (link.processKey !== activeProcess) return false;
-      return currentUserMatches(link.assignedUser);
+      return currentUserMatches(getAssignedUsersArray(link));
     });
 
     if (!visible.length) { bar.innerHTML = ""; return; }
@@ -1660,7 +1700,7 @@
       msg = "Hi " + (contact.doerName || "") + ", you have " + tasks.length +
         " pending task(s):\n\n" + lines.join("\n") + "\n\nPlease action these soon.";
     } else {
-      msg = "Hi " + (contact.doerName || "") + ", please check your pending tasks on the Purchase Operations Dashboard.";
+      msg = "Hi " + (contact.doerName || "") + ", please check your pending tasks on My Dashboard.";
     }
 
     window.open("https://wa.me/" + phone + "?text=" + encodeURIComponent(msg), "_blank");
@@ -1680,20 +1720,23 @@
   }
 
   function populateQuickLinkFormSelects() {
-    const userSel = document.getElementById("newLinkUser");
     const procSel = document.getElementById("newLinkProcess");
-    if (!userSel || !procSel) return;
+    const usersRow = document.getElementById("newLinkUsersRow");
+    if (!procSel || !usersRow) return;
 
     const users = Object.keys(allUsers).map(function(k) { return allUsers[k]; })
       .filter(function(u) { return u && u.username; })
       .sort(function(a, b) { return String(a.username).localeCompare(String(b.username)); });
 
-    const currentUserVal = userSel.value;
-    userSel.innerHTML = '<option value="">Everyone</option>' + users.map(function(u) {
+    usersRow.innerHTML = `
+      <span class="assign-users-label">Assign to</span>
+      <label class="assign-checkbox everyone-checkbox">
+        <input type="checkbox" id="newLinkEveryone" checked onchange="onEveryoneToggle()"> Everyone
+      </label>
+    ` + users.map(function(u) {
       const label = u.doerName ? (u.username + " — " + u.doerName) : u.username;
-      return `<option value="${escapeAttr(u.username)}">${escapeHtml(label)}</option>`;
+      return `<label class="assign-checkbox"><input type="checkbox" class="newLinkUserCheckbox" value="${escapeAttr(u.username)}" disabled onchange="onUserCheckboxToggle()"> ${escapeHtml(label)}</label>`;
     }).join("");
-    userSel.value = currentUserVal;
 
     const processes = Object.keys(rawTasks);
     const currentProcVal = procSel.value;
@@ -1701,6 +1744,23 @@
       return `<option value="${escapeAttr(p)}">${escapeHtml(processLabel(p))}</option>`;
     }).join("");
     procSel.value = currentProcVal;
+  }
+
+  function onEveryoneToggle() {
+    const everyone = document.getElementById("newLinkEveryone");
+    const boxes = document.querySelectorAll(".newLinkUserCheckbox");
+    if (everyone.checked) {
+      boxes.forEach(function(b) { b.checked = false; b.disabled = true; });
+    } else {
+      boxes.forEach(function(b) { b.disabled = false; });
+    }
+  }
+
+  function onUserCheckboxToggle() {
+    const boxes = document.querySelectorAll(".newLinkUserCheckbox");
+    const anyChecked = Array.from(boxes).some(function(b) { return b.checked; });
+    const everyone = document.getElementById("newLinkEveryone");
+    if (anyChecked && everyone) everyone.checked = false;
   }
 
   function renderQuickLinksPanel() {
@@ -1716,7 +1776,8 @@
 
     list.innerHTML = ids.map(function(id) {
       const link = quickLinks[id] || {};
-      const forWho = link.assignedUser ? ("for " + link.assignedUser) : "for Everyone";
+      const assigned = getAssignedUsersArray(link);
+      const forWho = assigned.length ? ("for " + assigned.join(", ")) : "for Everyone";
       const inTask = link.processKey ? ("in " + processLabel(link.processKey)) : "Global (top bar)";
       return `
         <div class="link-list-row">
@@ -1730,13 +1791,19 @@
   async function addQuickLink() {
     const label = (document.getElementById("newLinkLabel").value || "").trim();
     let url = (document.getElementById("newLinkUrl").value || "").trim();
-    const assignedUser = (document.getElementById("newLinkUser").value || "").trim();
     const processKey = (document.getElementById("newLinkProcess").value || "").trim();
     if (!label || !url) { showSaveToast("Enter both a label and a URL"); return; }
     if (!/^https?:\/\//i.test(url)) url = "https://" + url;
 
+    const everyoneBox = document.getElementById("newLinkEveryone");
+    const userBoxes = document.querySelectorAll(".newLinkUserCheckbox");
+    let assignedUsers = [];
+    if (!everyoneBox || !everyoneBox.checked) {
+      assignedUsers = Array.from(userBoxes).filter(function(b) { return b.checked; }).map(function(b) { return b.value; });
+    }
+
     const id = "l" + Date.now();
-    const payload = { label: label, url: url, assignedUser: assignedUser, processKey: processKey };
+    const payload = { label: label, url: url, assignedUsers: assignedUsers, processKey: processKey };
 
     try {
       await fetch(FIREBASE_URL + "/customButtons/" + id + ".json", {
@@ -1747,8 +1814,9 @@
       quickLinks[id] = payload;
       document.getElementById("newLinkLabel").value = "";
       document.getElementById("newLinkUrl").value = "";
-      document.getElementById("newLinkUser").value = "";
       document.getElementById("newLinkProcess").value = "";
+      if (everyoneBox) everyoneBox.checked = true;
+      userBoxes.forEach(function(b) { b.checked = false; b.disabled = true; });
       renderQuickLinksPanel();
       renderQuickLinksBar();
       renderTaskQuickLinksBar();
